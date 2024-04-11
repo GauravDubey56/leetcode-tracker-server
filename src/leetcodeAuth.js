@@ -1,6 +1,9 @@
 import axios from "axios";
-import { authHeader } from "./constants.js";
-
+import { DEFAULT_AUTH_HEADER, authHeader } from "./constants.js";
+const USER_AGENT = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+};
 export class LeetcodeAuth {
   getCsrfToken = async (cookie) => {
     let csrftoken = "";
@@ -16,16 +19,19 @@ export class LeetcodeAuth {
   };
 
   accessToken = async () => {
-    const res = await axios.get("https://leetcode.com/", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        Origin: "https://leetcode.com",
-      },
-      withCredentials: true,
-      resolveWithFullResponse: true,
-    });
-    const token = await this.getCsrfToken(res.headers["set-cookie"]);
-    return token;
+    try {
+      const res = await axios.request({
+        method: "get",
+        maxBodyLength: Infinity,
+        url: "http://www.leetcode.com",
+        headers: {},
+      });
+      const token = await this.getCsrfToken(res.headers["set-cookie"]);
+      return token;
+    } catch (error) {
+      const token = this.getCsrfToken(error.response.headers["set-cookie"]);
+      return token;
+    }
   };
 
   verifyLogin = async (token, session) => {
@@ -142,8 +148,52 @@ export class LeetcodeAuth {
         withCredentials: true,
       }
     );
-    return res.data;
+    const userData = this.extractEndUserInfo(res.data?.data);
+    return userData;
   };
+  extractEndUserInfo(data) {
+    const userData = data.matchedUser;
+
+    // Extract profile details
+    const profileDetails = {
+      username: userData.username,
+      realName: userData.profile.realName,
+      avatar: userData.profile.userAvatar,
+      reputation: userData.profile.reputation,
+      ranking: userData.profile.ranking,
+    };
+
+    // Extract questions attempted
+    const questionsAttempted = {
+      totalQuestionsCount: data.allQuestionsCount.find(
+        (item) => item.difficulty === "All"
+      ).count,
+      easyQuestionsCount: data.allQuestionsCount.find(
+        (item) => item.difficulty === "Easy"
+      ).count,
+      mediumQuestionsCount: data.allQuestionsCount.find(
+        (item) => item.difficulty === "Medium"
+      ).count,
+      hardQuestionsCount: data.allQuestionsCount.find(
+        (item) => item.difficulty === "Hard"
+      ).count,
+    };
+
+    // Extract submission calendar in date format
+    const submissionCalendar = JSON.parse(userData.submissionCalendar);
+    const submissionCalendarDates = Object.keys(submissionCalendar).map(
+      (timestamp) => {
+        const date = new Date(parseInt(timestamp) * 1000); // Convert timestamp to milliseconds
+        return date.toDateString();
+      }
+    );
+
+    return {
+      profileDetails: profileDetails,
+      questionsAttempted: questionsAttempted,
+      lastSubmissionsDoneOn: submissionCalendarDates,
+    };
+  }
 
   loginWithCredentials = async (username, password, token) => {
     const data = {
